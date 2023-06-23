@@ -1,6 +1,7 @@
 import json
 import re
 from abc import ABC, abstractmethod
+from contextlib import nullcontext
 from typing import Any, Dict, List, Optional, TypedDict
 
 import openai
@@ -45,7 +46,7 @@ def {method_name}(data: pd.DataFrame) -> Union["plotly.graph_objs.Figure", "plot
         data (pd.DataFrame): The data to visualize.
 
     Returns:
-        Union[plotly.graph_objs.Figure, plotly.graph_objs.Data]: The plotly visualization figure.
+        Union[plotly.graph_objs.Figure, plotly.graph_objs.Data]: The plotly visualization figure object.
     \"\"\"
     # All task-specific imports here:
     import plotly
@@ -293,10 +294,11 @@ class DataDescription(TypedDict):
     chart_ideas: List[str]
 
 
-@st.cache_data(show_spinner="Analyzing your data...")
+@st.cache_data(show_spinner=False)
 def get_data_description(
     dataset_df: pd.DataFrame,
     openai_model: str = "gpt-3.5-turbo",
+    show_system_messages: bool = False,
 ) -> DataDescription:
     user_prompt = f"""
 {get_dataset_description_prompt(dataset_df)}
@@ -332,7 +334,18 @@ Please only respond with a valid JSON and fill out all {{placeholders}}:
     print("Prompt tokens", num_tokens_from_messages(messages))
 
     completion = openai.ChatCompletion.create(model=openai_model, messages=messages)
-    return json.loads(completion.choices[0].message.content)
+    response_json = json.loads(completion.choices[0].message.content)
+
+    if show_system_messages:
+        with st.expander("System messages"):
+            for message in messages:
+                st.markdown(message["content"])
+            st.divider()
+            st.markdown("**GPT Response:**")
+            st.json(response_json)
+            st.divider()
+            st.markdown(f"**User tokens:** {num_tokens_from_messages(messages)}")
+    return response_json
 
 
 class TaskSummary(TypedDict):
@@ -348,6 +361,7 @@ def get_task_summary(
     task_instruction: str,
     openai_model: str = "gpt-3.5-turbo",
     column_desc_df: Optional[pd.DataFrame] = None,
+    show_system_messages: bool = False,
 ) -> TaskSummary:
     user_prompt = f"""
 {get_dataset_description_prompt(dataset_df, column_desc_df)}
@@ -377,7 +391,6 @@ class TaskSummary(TypedDict):
 
 Please only respond with a valid JSON:
     """
-
     messages = [
         {
             "role": "system",
@@ -387,7 +400,19 @@ Please only respond with a valid JSON:
     ]
     print("Prompt tokens", num_tokens_from_messages(messages))
     completion = openai.ChatCompletion.create(model=openai_model, messages=messages)
-    return json.loads(completion.choices[0].message.content)
+    response_json = json.loads(completion.choices[0].message.content)
+
+    if show_system_messages:
+        with st.expander("System messages"):
+            for message in messages:
+                st.markdown(message["content"])
+            st.divider()
+            st.markdown("**GPT Response:**")
+            st.json(response_json)
+            st.divider()
+            st.markdown(f"**User tokens:** {num_tokens_from_messages(messages)}")
+
+    return response_json
 
 
 @st.cache_data(show_spinner=False)
@@ -398,6 +423,7 @@ def get_task_code(
     task_library: str,
     openai_model: str = "gpt-3.5-turbo",
     column_desc_df: Optional[pd.DataFrame] = None,
+    show_system_messages: bool = False,
 ) -> str:
     user_prompt = f"""
 {get_dataset_description_prompt(dataset_df, column_desc_df)}
@@ -418,7 +444,7 @@ Implement all {{placeholders}}, make sure that the Python code is valid. Please 
     messages = [
         {
             "role": "system",
-            "content": "You are a helpful assistant that helps create python functions to perform analysis, visualization, processing, or other tasks on a Pandas dataframe. The user will provide a description about the dataframe as well as a code template and instructions. Please only answer with valid Python code.",
+            "content": "You are a helpful assistant that helps create python functions to perform data exploration and visualization tasks on a Pandas dataframe. The user will provide a description about the dataframe as well as a code template and instructions. Please only answer with valid Python code.",
             # "content": "You are a helpful assistant that helps create python functions to perform data visualizations on a Pandas dataframe. The user will provide a description about the dataframe as well as a code template and instructions. Please only answer with valid Python code.",
         },
         {"role": "user", "content": user_prompt},
@@ -427,51 +453,20 @@ Implement all {{placeholders}}, make sure that the Python code is valid. Please 
     print("Prompt tokens", num_tokens_from_messages(messages))
     completion = openai.ChatCompletion.create(model=openai_model, messages=messages)
     response = completion.choices[0].message.content.strip()
+
+    if show_system_messages:
+        with st.expander("System messages"):
+            for message in messages:
+                st.markdown(message["content"])
+            st.divider()
+            st.markdown("**GPT Response:**")
+            st.markdown(response)
+            st.divider()
+            st.markdown(f"**User tokens:** {num_tokens_from_messages(messages)}")
+
     code_block = extract_first_code_block(response)
     if not code_block and response:
         st.info(response, icon="🤖")
-    return code_block
-
-
-@st.cache_data(show_spinner=False)
-def get_fixed_code(
-    task_code: str,
-    exception_message: str,
-    dataset_df: pd.DataFrame,
-    column_desc_df: Optional[pd.DataFrame] = None,
-    openai_model: str = "gpt-3.5-turbo",
-) -> str:
-    user_prompt = f"""
-{get_dataset_description_prompt(dataset_df, column_desc_df, light=True)}
-
-Based on this data, I implemented the following code:
-
-```python
-{task_code}
-```
-
-But it throws the following exception:
-
-{exception_message}
-
-Please fix the code but don't change any method or class names. Put the code in a markdown code block (```) and only respond with entire code that includes the fixes:
-"""
-
-    messages = [
-        {
-            "role": "system",
-            "content": "You are a helpful assistant that helps to fix python functions to perform analysis, visualization, processing, or other tasks on a Pandas dataframe. The user will provide a function implementation and an exception message. Your job is it to fix the code so that it doesn't run into this exception. Please only answer with valid Python code.",
-        },
-        {"role": "user", "content": user_prompt},
-    ]
-
-    print("Prompt tokens", num_tokens_from_messages(messages))
-    completion = openai.ChatCompletion.create(model=openai_model, messages=messages)
-    response = completion.choices[0].message.content.strip()
-    code_block = extract_first_code_block(response)
-    if not code_block and response:
-        st.info(response, icon="🤖")
-    print(code_block)
     return code_block
 
 
@@ -480,8 +475,10 @@ def get_modified_code(
     task_code: str,
     instruction: str,
     dataset_df: pd.DataFrame,
+    exception_message: Optional[str] = None,
     column_desc_df: Optional[pd.DataFrame] = None,
     openai_model: str = "gpt-3.5-turbo",
+    show_system_messages: bool = False,
 ) -> str:
     user_prompt = f"""
 {get_dataset_description_prompt(dataset_df, column_desc_df, light=True)}
@@ -492,19 +489,21 @@ Based on this data, I implemented the following python function:
 {task_code}
 ```
 
+{"But it throws the following exception: " + exception_message if exception_message else ""}
+
 Please modify this code based on the following instruction:
 
 ```
 {instruction}
 ```
 
-Keep the function name and config class name. Only respond with entire code that includes the modifications:
+It is very important to use the same function name and signature from the original code. Put the code in a markdown code block (```) and only respond with entire code that includes the modifications:
 """
 
     messages = [
         {
             "role": "system",
-            "content": "You are a helpful assistant that helps to modify python functions that perform analysis, visualization, processing, or other tasks on a Pandas dataframe. The user will provide a function implementation and a modification instruction. Please modify the code based on the instruction and only answer with valid Python code.",
+            "content": "You are a helpful assistant that helps to modify python functions that perform data exploration or visualization tasks on a Pandas dataframe. The user will provide a function implementation and a modification instruction. Please modify the code based on the instruction and only answer with valid Python code.",
         },
         {"role": "user", "content": user_prompt},
     ]
@@ -512,6 +511,16 @@ Keep the function name and config class name. Only respond with entire code that
     print("Prompt tokens", num_tokens_from_messages(messages))
     completion = openai.ChatCompletion.create(model=openai_model, messages=messages)
     response = completion.choices[0].message.content.strip()
+    if show_system_messages:
+        with st.expander("System messages"):
+            for message in messages:
+                st.markdown(message["content"])
+            st.divider()
+            st.markdown("**GPT Response:**")
+            st.markdown(response)
+            st.divider()
+            st.markdown(f"**User tokens:** {num_tokens_from_messages(messages)}")
+
     code_block = extract_first_code_block(response)
     if not code_block and response:
         st.info(response, icon="🤖")

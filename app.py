@@ -10,7 +10,6 @@ from prompts import (
     TOOLS,
     DataDescription,
     get_data_description,
-    get_fixed_code,
     get_modified_code,
     get_task_code,
     get_task_summary,
@@ -48,7 +47,7 @@ def clear_history() -> None:
     st.session_state["dataset"].history = []
 
 
-def clear_task() -> DatasetState:
+def clear_dataset() -> DatasetState:
     st.session_state["dataset"] = DatasetState()
     return st.session_state["dataset"]
 
@@ -60,10 +59,12 @@ with st.sidebar:
         label="Select a Chart Library",
         key="library_selection",
         options=list(library_mapping.keys()),
-        on_change=clear_task,  # type: ignore
+        on_change=clear_history,
     )
     assert selected_library is not None
     selected_tool = library_mapping[selected_library]
+
+    show_system_messages = st.checkbox("Show System Messages", value=False)
 
 
 st.title("📈 ChartGPT")
@@ -76,7 +77,7 @@ with st.chat_message("assistant"):
     dataset_type = st.selectbox(
         label="Data Source",
         options=["Toy Datasets", "CSV File"],
-        on_change=clear_task,  # type: ignore
+        on_change=clear_dataset,  # type: ignore
     )
 
     with st.form(key="load_data"):
@@ -97,7 +98,7 @@ with st.chat_message("assistant"):
                 load_data = lambda: pd.read_csv(csv_file)
 
         if st.form_submit_button("📂 Load Data"):
-            charting_state = clear_task()
+            charting_state = clear_dataset()
             with st.spinner("📥 Loading data..."):
                 charting_state.dataset = load_data() if load_data else None
                 time.sleep(1)
@@ -122,11 +123,13 @@ with st.chat_message("assistant"):
     )
 
 with st.chat_message("assistant"):
-    st.markdown("I'm now taking a closer look at your data 🔬")
-    if charting_state.data_description is None:
-        charting_state.data_description = get_data_description(
-            charting_state.dataset, openai_model=st.session_state["openai_model"]
-        )
+    with st.spinner("🔬 Analyzing your data..."):
+        if charting_state.data_description is None:
+            charting_state.data_description = get_data_description(
+                charting_state.dataset,
+                openai_model=st.session_state["openai_model"],
+                show_system_messages=show_system_messages,
+            )
     st.markdown(charting_state.data_description["data_description"])
     st.markdown("Here is my interpretation of every column:")
     charting_state.column_descriptions = st.data_editor(
@@ -211,6 +214,7 @@ if not charting_state.history:
                     prompt,
                     openai_model=st.session_state["openai_model"],
                     column_desc_df=charting_state.column_descriptions,
+                    show_system_messages=show_system_messages,
                 )
                 name = task_summary["emoji"] + " " + task_summary["name"]
                 new_chart.method_name = utils.name_to_variable(
@@ -229,6 +233,7 @@ if not charting_state.history:
                         task_library=new_chart.library,
                         openai_model=st.session_state["openai_model"],
                         column_desc_df=charting_state.column_descriptions,
+                        show_system_messages=show_system_messages,
                     )
                 with st.spinner(f"Creating chart for: {name}"):
                     load_code(new_chart)
@@ -248,24 +253,20 @@ if charting_state.history:
         st.chat_message("user").write(prompt)
 
         with st.chat_message("assistant"):
-            if latest_chart_request.exception:
-                with st.spinner("🔧 Fixing code..."):
-                    modified_code = get_fixed_code(
-                        task_code=latest_chart_request.generated_code,
-                        exception_message=latest_chart_request.exception,
-                        dataset_df=charting_state.dataset,
-                        openai_model=st.session_state["openai_model"],
-                        column_desc_df=charting_state.column_descriptions,
-                    )
-            else:
-                with st.spinner("🔨 Modifying code..."):
-                    modified_code = get_modified_code(
-                        task_code=latest_chart_request.generated_code,
-                        instruction=prompt,
-                        dataset_df=charting_state.dataset,
-                        openai_model=st.session_state["openai_model"],
-                        column_desc_df=charting_state.column_descriptions,
-                    )
+            with st.spinner(
+                "🔧 Fixing code..."
+                if latest_chart_request.exception
+                else "🔨 Modifying code..."
+            ):
+                modified_code = get_modified_code(
+                    task_code=latest_chart_request.generated_code,
+                    instruction=prompt,
+                    dataset_df=charting_state.dataset,
+                    exception_message=latest_chart_request.exception,
+                    openai_model=st.session_state["openai_model"],
+                    column_desc_df=charting_state.column_descriptions,
+                    show_system_messages=show_system_messages,
+                )
 
             if modified_code:
                 new_chart.generated_code = modified_code
