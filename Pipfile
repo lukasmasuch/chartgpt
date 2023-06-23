@@ -1,0 +1,37 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+streamlit = {file = "https://github.com/LukasMasuch/st-playground/releases/download/chat-component-0.0.12/streamlit-1.23.1357-py2.py3-none-any.whl"}
+plotly = "*"
+openai = "*"
+matplotlib = "*"
+altair = "*"
+numpy = "*"
+pandas = "*"
+tiktoken = "*"
+vega_datasets = "*"
+
+
+[dev-packages]
+setuptools = "*"
+twine = "*"
+wheel = "*"
+flake8 = "*"
+pytest = "*"
+pytest-mock = "*"
+pytest-cov = "*"
+mypy = "*"
+black = "*"
+pydocstyle = "*"
+isort = "*"
+lazydocs = "*"
+universal-build = "*"
+rope = "*"
+ruff = "*"
+
+[scripts]
+install-kernel = "python -m ipykernel install --user --name=chartgpt-dev"
+app = "streamlit run ./app.py"
