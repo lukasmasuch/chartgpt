@@ -20,10 +20,10 @@ def page_setup() -> None:
     )
 
     PASSCODE = os.environ.get("PASSCODE")
-    OPENAPI_API_KEY = os.environ.get("OPENAPI_API_KEY")
+    OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
-    if OPENAPI_API_KEY:
-        openai.api_key = OPENAPI_API_KEY
+    if OPENAI_API_KEY:
+        openai.api_key = OPENAI_API_KEY
 
     if PASSCODE and "authenticate" not in st.session_state:
         if st.text_input("What is the passcode?", type="password") == PASSCODE:
@@ -57,7 +57,7 @@ def page_setup() -> None:
             options=["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4"],
             help="Make sure that the provided API key is activated for the selected model.",
         )
-        if not OPENAPI_API_KEY:
+        if not OPENAI_API_KEY:
             openai.api_key = st.text_input(
                 "OpenAI API Key",
                 type="password",
